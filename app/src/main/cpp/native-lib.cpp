@@ -515,8 +515,7 @@ Java_kr_co_iefriends_pcsx2_NativeApp_loadStateFromSlot(JNIEnv *env, jclass clazz
 
     std::future<bool> ret = std::async([p_slot]
     {
-       u32 _crc = VMManager::GetDiscCRC();
-       if(_crc != 0) {
+       if(VMManager::GetDiscCRC() != 0) {
            if (VMManager::HasSaveStateInSlot(VMManager::GetDiscSerial().c_str(), _crc, p_slot)) {
                if(VMManager::GetState() != VMState::Paused) {
                    VMManager::SetPaused(true);

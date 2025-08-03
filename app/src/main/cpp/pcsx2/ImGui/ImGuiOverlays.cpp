@@ -173,7 +173,7 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 		if (GSConfig.OsdShowVersion)
 		{
 //			text.append_format("{}PCSX2 {}", first ? "" : " | ", BuildVersion::GitRev);
-            text.append_format("{}PCSX2 {}", first ? "" : " | ", "v2.3.430");
+            text.append_format("{}PCSX2 {}", first ? "" : " | ", "v2.3.440");
 		}
 
 		if (!text.empty())
@@ -417,10 +417,10 @@ __ri void ImGuiManager::DrawSettingsOverlay(float scale, float margin, float spa
 
 		APPEND("B={} PL={} ", static_cast<unsigned>(GSConfig.AccurateBlendingUnit), static_cast<unsigned>(GSConfig.TexturePreloading));
 		if (GSConfig.GPUPaletteConversion)
-			APPEND("PT ");
+			APPEND("PLTX ");
 
 		if (GSConfig.HWDownloadMode != GSHardwareDownloadMode::Enabled)
-			APPEND("DL={} ", static_cast<unsigned>(GSConfig.HWDownloadMode));
+			APPEND("HWDM={} ", static_cast<unsigned>(GSConfig.HWDownloadMode));
 
 		if (GSConfig.HWMipmap)
 			APPEND("MM ");
@@ -467,7 +467,7 @@ __ri void ImGuiManager::DrawSettingsOverlay(float scale, float margin, float spa
 		if (GSConfig.UserHacks_CPUFBConversion)
 			APPEND("FBC ");
 		if (GSConfig.UserHacks_ReadTCOnClose)
-			APPEND("FTC ");
+			APPEND("RTOC ");
 		if (GSConfig.UserHacks_DisableDepthSupport)
 			APPEND("DDC ");
 		if (GSConfig.UserHacks_DisablePartialInvalidation)
