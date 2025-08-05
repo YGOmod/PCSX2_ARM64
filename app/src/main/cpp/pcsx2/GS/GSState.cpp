@@ -705,7 +705,7 @@ void GSState::GIFPackedRegHandlerSTQRGBAXYZ2(const GIFPackedReg* RESTRICT r, u32
 		GSVector4i q = GSVector4i::loadl(&r[0].U64[1]);
 		const GSVector4i rgba = (GSVector4i::load<false>(&r[1]) & GSVector4i::x000000ff()).ps32().pu16();
 
-		q = q.blend8(GSVector4i::cast(GSVector4:(FLT_MIN)), q == GSVector4i::zero()); // see GIFPackedRegHandlerSTQ
+		q = q.blend8(GSVector4i::cast(GSVector4(FLT_MIN)), q == GSVector4i::zero()); // see GIFPackedRegHandlerSTQ
 
 		m_v.m[0] = st.upl64(rgba.upl32(q)); // TODO: only store the last one
 
