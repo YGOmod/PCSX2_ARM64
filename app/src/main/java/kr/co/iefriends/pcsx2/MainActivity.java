@@ -17,6 +17,9 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.google.android.material.button.MaterialButton;
 
@@ -46,6 +49,8 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        enableFullscreen();
 
         // Default resources
         copyAssetAll(getApplicationContext(), "bios");
@@ -320,6 +325,18 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void enableFullscreen() {
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+    
+        WindowInsetsControllerCompat controller = 
+            new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView());
+    
+        controller.hide(WindowInsetsCompat.Type.systemBars());
+        controller.setSystemBarsBehavior(
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        );
+    }
+
     public final ActivityResultLauncher<Intent> startActivityResultLocalFilePlay = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
             result -> {
@@ -355,6 +372,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         NativeApp.resume();
         super.onResume();
+        enableFullscreen();
         ////
         if (mHIDDeviceManager != null) {
             mHIDDeviceManager.setFrozen(false);
@@ -381,6 +399,14 @@ public class MainActivity extends AppCompatActivity {
 
         int appPid = android.os.Process.myPid();
         android.os.Process.killProcess(appPid);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            enableFullscreen();
+        }
     }
 
     //////////////////////////////////////////////////////////////////////////////////////////////
