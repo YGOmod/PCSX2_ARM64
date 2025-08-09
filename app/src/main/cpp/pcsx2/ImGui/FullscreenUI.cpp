@@ -1133,8 +1133,6 @@ bool FullscreenUI::LoadSvgResources()
 
 void FullscreenUI::DestroyResources()
 {
-	s_fallback_exe_texture.reset();
-	s_fallback_disc_texture.reset();
 	s_banner_texture.reset();
 	for (auto& tex : s_game_compatibility_textures)
 		tex.reset();
