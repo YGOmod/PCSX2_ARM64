@@ -173,7 +173,7 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 		if (GSConfig.OsdShowVersion)
 		{
 //			text.append_format("{}PCSX2 {}", first ? "" : " | ", BuildVersion::GitRev);
-            text.append_format("{}PCSX2 {}", first ? "" : " | ", "v2.3.440");
+            text.append_format("{}PCSX2 {}", first ? "" : " | ", "v2.5.0");
 		}
 
 		if (!text.empty())

@@ -1977,7 +1977,7 @@ void GSDeviceOGL::SetupDATE(GSTexture* rt, GSTexture* ds, const GSVertexPT1* ver
 
 	OMSetRenderTargets(nullptr, ds, &GLState::scissor);
 	{
-		const GLint clear_color = 0;
+		constexpr GLint clear_color = 0;
 		glClearBufferiv(GL_STENCIL, 0, &clear_color);
 	}
 	m_convert.ps[SetDATMShader(datm)].Bind();
@@ -1985,10 +1985,6 @@ void GSDeviceOGL::SetupDATE(GSTexture* rt, GSTexture* ds, const GSVertexPT1* ver
 	// om
 
 	OMSetDepthStencilState(m_date.dss);
-	if (GLState::blend)
-	{
-		glDisable(GL_BLEND);
-	}
 
 	// ia
 
@@ -1996,18 +1992,12 @@ void GSDeviceOGL::SetupDATE(GSTexture* rt, GSTexture* ds, const GSVertexPT1* ver
 	IASetVertexBuffer(vertices, 4);
 	IASetPrimitiveTopology(GL_TRIANGLE_STRIP);
 
-
 	// Texture
 
 	PSSetShaderResource(0, rt);
 	PSSetSamplerState(m_convert.pt);
 
 	DrawPrimitive();
-
-	if (GLState::blend)
-	{
-		glEnable(GL_BLEND);
-	}
 }
 
 void GSDeviceOGL::IASetVAO(GLuint vao)
@@ -2541,7 +2531,7 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 			primid_texture = InitPrimDateTexture(colclip_rt ? colclip_rt : config.rt, config.drawarea, config.datm);
 			if (!primid_texture)
 			{
-				Console.WriteLn("GL: Failed to allocate DATE image, aborting draw.");
+				Console.Warning("GL: Failed to allocate DATE image, aborting draw.");
 				return;
 			}
 			break;
@@ -2651,6 +2641,7 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 	{
 		// Ensure all depth writes are finished before sampling
 		GL_INS("GL: Texture barrier to flush depth or rt before reading");
+		g_perfmon.Put(GSPerfMon::Barriers, 1);
 		glTextureBarrier();
 	}
 	// additional non-pipeline config stuff
@@ -2673,7 +2664,7 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 		}
 	}
 
-	if (config.destination_alpha == GSHWDrawConfig::DestinationAlphaMode::PrimIDTracking)
+	if (primid_texture)
 	{
 		GL_PUSH("Destination Alpha PrimID Init");
 
@@ -2693,7 +2684,6 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 		psel.ps.date = 3;
 		config.alpha_second_pass.ps.date = 3;
 		SetupPipeline(psel);
-		PSSetShaderResource(3, primid_texture);
 	}
 
 	if (config.blend.IsEffective(config.colormask))
@@ -2723,6 +2713,10 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 	}
 
 	OMSetRenderTargets(draw_rt, draw_ds, &config.scissor);
+
+	if (primid_texture)
+		PSSetShaderResource(3, primid_texture);
+
 	OMSetColorMaskState(config.colormask);
 	SetupOM(config.depth);
 

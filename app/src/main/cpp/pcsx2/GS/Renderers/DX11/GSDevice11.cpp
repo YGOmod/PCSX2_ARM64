@@ -551,9 +551,18 @@ void GSDevice11::Destroy()
 	m_rs.reset();
 
 	if (m_state.rt_view)
+	{
 		m_state.rt_view->Release();
+		m_state.rt_view = nullptr;
+	}
+	m_state.cached_rt_view = nullptr;
+
 	if (m_state.dsv)
+	{
 		m_state.dsv->Release();
+		m_state.dsv = nullptr;
+	}
+	m_state.cached_dsv = nullptr;
 
 	m_shader_cache.Close();
 
@@ -950,11 +959,13 @@ GSDevice::PresentResult GSDevice11::BeginPresent(bool frame_skip)
 		m_state.rt_view->Release();
 	m_state.rt_view = m_swap_chain_rtv.get();
 	m_state.rt_view->AddRef();
+	m_state.cached_rt_view = nullptr;
 	if (m_state.dsv)
 	{
 		m_state.dsv->Release();
 		m_state.dsv = nullptr;
 	}
+	m_state.cached_dsv = nullptr;
 
 	g_perfmon.Put(GSPerfMon::RenderPasses, 1);
 
@@ -1105,14 +1116,14 @@ float GSDevice11::GetAndResetAccumulatedGPUTime()
 void GSDevice11::DrawPrimitive()
 {
 	g_perfmon.Put(GSPerfMon::DrawCalls, 1);
-	PSUpdateShaderState();
+	PSUpdateShaderState(true, true);
 	m_ctx->Draw(m_vertex.count, m_vertex.start);
 }
 
 void GSDevice11::DrawIndexedPrimitive()
 {
 	g_perfmon.Put(GSPerfMon::DrawCalls, 1);
-	PSUpdateShaderState();
+	PSUpdateShaderState(true, true);
 	m_ctx->DrawIndexed(m_index.count, m_index.start, m_vertex.start);
 }
 
@@ -1120,7 +1131,7 @@ void GSDevice11::DrawIndexedPrimitive(int offset, int count)
 {
 	pxAssert(offset + count <= (int)m_index.count);
 	g_perfmon.Put(GSPerfMon::DrawCalls, 1);
-	PSUpdateShaderState();
+	PSUpdateShaderState(true, true);
 	m_ctx->DrawIndexed(count, m_index.start + offset, m_vertex.start);
 }
 
@@ -1280,6 +1291,8 @@ void GSDevice11::StretchRect(GSTexture* sTex, const GSVector4& sRect, GSTexture*
 	GSVector2i ds;
 	if (dTex)
 	{
+		// ps unbind conflicting srvs
+		PSUnbindConflictingSRVs(dTex);
 		ds = dTex->GetSize();
 		if (draw_in_depth)
 			OMSetRenderTargets(nullptr, dTex);
@@ -1315,7 +1328,7 @@ void GSDevice11::StretchRect(GSTexture* sTex, const GSVector4& sRect, GSTexture*
 	};
 
 
-    IASetVertexBuffer(vertices, sizeof(vertices[0]), std::size(vertices));
+	IASetVertexBuffer(vertices, sizeof(vertices[0]), std::size(vertices));
 	IASetInputLayout(m_convert.il.get());
 	IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
@@ -1329,7 +1342,7 @@ void GSDevice11::StretchRect(GSTexture* sTex, const GSVector4& sRect, GSTexture*
 	PSSetSamplerState(linear ? m_convert.ln.get() : m_convert.pt.get());
 	PSSetShader(ps, ps_cb);
 
-	//
+	// draw
 
 	DrawPrimitive();
 }
@@ -1341,6 +1354,8 @@ void GSDevice11::PresentRect(GSTexture* sTex, const GSVector4& sRect, GSTexture*
 	GSVector2i ds;
 	if (dTex)
 	{
+		// ps unbind conflicting srvs
+		PSUnbindConflictingSRVs(dTex);
 		ds = dTex->GetSize();
 		OMSetRenderTargets(dTex, nullptr);
 	}
@@ -1388,7 +1403,7 @@ void GSDevice11::PresentRect(GSTexture* sTex, const GSVector4& sRect, GSTexture*
 	PSSetSamplerState(linear ? m_convert.ln.get() : m_convert.pt.get());
 	PSSetShader(m_present.ps[static_cast<u32>(shader)].get(), m_present.ps_cb.get());
 
-	//
+	// draw
 
 	DrawPrimitive();
 }
@@ -1454,6 +1469,7 @@ void GSDevice11::DrawMultiStretchRects(const MultiStretchRect* rects, u32 num_re
 
 	VSSetShader(m_convert.vs.get(), nullptr);
 	PSSetShader(m_convert.ps[static_cast<int>(shader)].get(), nullptr);
+	PSUnbindConflictingSRVs(dTex);
 
 	OMSetDepthStencilState(dTex->IsRenderTarget() ? m_convert.dss.get() : m_convert.dss_write.get(), 0);
 	OMSetRenderTargets(dTex->IsRenderTarget() ? dTex : nullptr, dTex->IsDepthStencil() ? dTex : nullptr);
@@ -2110,7 +2126,7 @@ void GSDevice11::RenderImGui()
 
 			// Since we don't have the GSTexture...
 			m_state.ps_sr_views[0] = reinterpret_cast<ID3D11ShaderResourceView*>(pcmd->GetTexID());
-			PSUpdateShaderState();
+			PSUpdateShaderState(true, true);
 
 			m_ctx->DrawIndexed(pcmd->ElemCount, m_index.start + pcmd->IdxOffset, vertex_offset + pcmd->VtxOffset);
 		}
@@ -2130,6 +2146,10 @@ void GSDevice11::SetupDATE(GSTexture* rt, GSTexture* ds, const GSVertexPT1* vert
 
 	m_ctx->ClearDepthStencilView(*static_cast<GSTexture11*>(ds), D3D11_CLEAR_STENCIL, 0.0f, 0);
 
+	// ps unbind conflicting srvs
+
+	PSUnbindConflictingSRVs(ds);
+
 	// om
 
 	OMSetDepthStencilState(m_date.dss.get(), 1);
@@ -2147,11 +2167,12 @@ void GSDevice11::SetupDATE(GSTexture* rt, GSTexture* ds, const GSVertexPT1* vert
 	VSSetShader(m_convert.vs.get(), nullptr);
 
 	// ps
+
 	PSSetShaderResource(0, rt);
 	PSSetSamplerState(m_convert.pt.get());
 	PSSetShader(m_convert.ps[SetDATMShader(datm)].get(), nullptr);
 
-	//
+	// draw
 
 	DrawPrimitive();
 }
@@ -2357,15 +2378,66 @@ void GSDevice11::PSSetShader(ID3D11PixelShader* ps, ID3D11Buffer* ps_cb)
 	}
 }
 
-void GSDevice11::PSUpdateShaderState()
+void GSDevice11::PSUpdateShaderState(const bool sr_update, const bool ss_update)
 {
-	m_ctx->PSSetShaderResources(0, m_state.ps_sr_views.size(), m_state.ps_sr_views.data());
-	m_ctx->PSSetSamplers(0, m_state.ps_ss.size(), m_state.ps_ss.data());
+	// Shader resource caching requires srv/rtv hazards to be resolved, ensure PSUnbindConflictingSRVs handle.
+	if (sr_update)
+	{
+		bool sr_changed = false;
+		for (size_t i = 0; i < m_state.ps_sr_views.size(); ++i)
+		{
+			if (m_state.ps_cached_sr_views[i] != m_state.ps_sr_views[i])
+			{
+				sr_changed = true;
+				break;
+			}
+		}
+		if (sr_changed)
+		{
+			m_state.ps_cached_sr_views = m_state.ps_sr_views;
+			m_ctx->PSSetShaderResources(0, m_state.ps_sr_views.size(), m_state.ps_sr_views.data());
+		}
+	}
+
+	if (ss_update)
+	{
+		bool ss_changed = false;
+		for (size_t i = 0; i < m_state.ps_ss.size(); ++i)
+		{
+			if (m_state.ps_cached_ss[i] != m_state.ps_ss[i])
+			{
+				ss_changed = true;
+				break;
+			}
+		}
+		if (ss_changed)
+		{
+			m_state.ps_cached_ss = m_state.ps_ss;
+			m_ctx->PSSetSamplers(0, m_state.ps_ss.size(), m_state.ps_ss.data());
+		}
+	}
+}
+
+void GSDevice11::PSUnbindConflictingSRVs(GSTexture* tex1, GSTexture* tex2)
+{
+	// Make sure no SRVs are bound using the same texture before binding it to a RTV.
+	bool changed = false;
+	for (size_t i = 0; i < m_state.ps_sr_views.size(); i++)
+	{
+		if ((tex1 && m_state.ps_sr_views[i] == *(GSTexture11*)tex1) || (tex2 && m_state.ps_sr_views[i] == *(GSTexture11*)tex2))
+		{
+			m_state.ps_sr_views[i] = nullptr;
+			changed = true;
+		}
+	}
+
+	if (changed)
+		PSUpdateShaderState(true, false);
 }
 
 void GSDevice11::OMSetDepthStencilState(ID3D11DepthStencilState* dss, u8 sref)
 {
-	if (m_state.dss != dss || m_state.sref != sref)
+	if (m_state.dss != dss || (dss && m_state.sref != sref))
 	{
 		m_state.dss = dss;
 		m_state.sref = sref;
@@ -2376,7 +2448,7 @@ void GSDevice11::OMSetDepthStencilState(ID3D11DepthStencilState* dss, u8 sref)
 
 void GSDevice11::OMSetBlendState(ID3D11BlendState* bs, u8 bf)
 {
-	if (m_state.bs != bs || m_state.bf != bf)
+	if (m_state.bs != bs || (bs && m_state.bf != bf))
 	{
 		m_state.bs = bs;
 		m_state.bf = bf;
@@ -2413,6 +2485,7 @@ void GSDevice11::OMSetRenderTargets(GSTexture* rt, GSTexture* ds, const GSVector
 		if (rtv)
 			rtv->AddRef();
 		m_state.rt_view = rtv;
+		m_state.cached_rt_view = rt;
 	}
 	if (m_state.dsv != dsv)
 	{
@@ -2421,6 +2494,7 @@ void GSDevice11::OMSetRenderTargets(GSTexture* rt, GSTexture* ds, const GSVector
 		if (dsv)
 			dsv->AddRef();
 		m_state.dsv = dsv;
+		m_state.cached_dsv = ds;
 	}
 	if (changed)
 		m_ctx->OMSetRenderTargets(1, &rtv, dsv);
@@ -2523,18 +2597,18 @@ void GSDevice11::RenderHW(GSHWDrawConfig& config)
 		}
 	}
 
-	GSTexture* primid_tex = nullptr;
+	GSTexture* primid_texture = nullptr;
 	if (config.destination_alpha == GSHWDrawConfig::DestinationAlphaMode::PrimIDTracking)
 	{
-		primid_tex = CreateRenderTarget(rtsize.x, rtsize.y, GSTexture::Format::PrimID, false);
-		if (!primid_tex)
+		primid_texture = CreateRenderTarget(rtsize.x, rtsize.y, GSTexture::Format::PrimID, false);
+		if (!primid_texture)
 		{
-			Console.WriteLn("D3D11: Failed to allocate DATE image, aborting draw.");
+			Console.Warning("D3D11: Failed to allocate DATE image, aborting draw.");
 			return;
 		}
 
 		StretchRect(colclip_rt ? colclip_rt : config.rt, GSVector4(config.drawarea) / GSVector4(rtsize).xyxy(),
-			primid_tex, GSVector4(config.drawarea), m_date.primid_init_ps[static_cast<u8>(config.datm)].get(), nullptr, false);
+			primid_texture, GSVector4(config.drawarea), m_date.primid_init_ps[static_cast<u8>(config.datm)].get(), nullptr, false);
 	}
 	else if (config.destination_alpha == GSHWDrawConfig::DestinationAlphaMode::Stencil ||
 			 config.destination_alpha == GSHWDrawConfig::DestinationAlphaMode::StencilOne)
@@ -2596,6 +2670,9 @@ void GSDevice11::RenderHW(GSHWDrawConfig& config)
 	}
 	IASetPrimitiveTopology(topology);
 
+	// Should be called before changing local srv state.
+	PSUnbindConflictingSRVs(colclip_rt ? colclip_rt : config.rt, config.ds);
+
 	if (config.tex)
 	{
 		CommitClear(config.tex);
@@ -2645,24 +2722,44 @@ void GSDevice11::RenderHW(GSHWDrawConfig& config)
 	SetupVS(config.vs, &config.cb_vs);
 	SetupPS(config.ps, &config.cb_ps, config.sampler);
 
-	if (config.destination_alpha == GSHWDrawConfig::DestinationAlphaMode::PrimIDTracking)
+	if (primid_texture)
 	{
 		OMDepthStencilSelector dss = config.depth;
 		dss.zwe = 0;
 		const OMBlendSelector blend(GSHWDrawConfig::ColorMaskSelector(1),
 			GSHWDrawConfig::BlendState(true, CONST_ONE, CONST_ONE, 3 /* MIN */, CONST_ONE, CONST_ZERO, false, 0));
 		SetupOM(dss, blend, 0);
-		OMSetRenderTargets(primid_tex, config.ds, &config.scissor);
+		OMSetRenderTargets(primid_texture, config.ds, &config.scissor);
 		DrawIndexedPrimitive();
 
 		config.ps.date = 3;
 		config.alpha_second_pass.ps.date = 3;
 		SetupPS(config.ps, nullptr, config.sampler);
-		PSSetShaderResource(3, primid_tex);
 	}
 
+	// Avoid changing framebuffer just to switch from rt+depth to rt and vice versa.
+	GSTexture* draw_rt = colclip_rt ? colclip_rt : config.rt;
+	GSTexture* draw_ds = config.ds;
+	// Make sure no tex is bound as both rtv and srv at the same time.
+	// All conflicts should've been taken care of by PSUnbindConflictingSRVs.
+	// It is fine to do the optimiation when on slot 0 tex is fb, tex is ds, and slot 2 sw blend as they are copies bound to srv.
+	if (!draw_rt && draw_ds && m_state.rt_view && m_state.cached_rt_view && m_state.rt_view == *(GSTexture11*)m_state.cached_rt_view &&
+		m_state.cached_dsv == draw_ds && config.tex != m_state.cached_rt_view && m_state.cached_rt_view->GetSize() == draw_ds->GetSize())
+	{
+		draw_rt = m_state.cached_rt_view;
+	}
+	else if (!draw_ds && draw_rt && m_state.dsv && m_state.cached_dsv && m_state.dsv == *(GSTexture11*)m_state.cached_dsv &&
+		m_state.cached_rt_view == draw_rt && config.tex != m_state.cached_dsv && m_state.cached_dsv->GetSize() == draw_rt->GetSize())
+	{
+		draw_ds = m_state.cached_dsv;
+	}
+
+	OMSetRenderTargets(draw_rt, draw_ds, &config.scissor);
+
+	if (primid_texture)
+		PSSetShaderResource(3, primid_texture);
+
 	SetupOM(config.depth, OMBlendSelector(config.colormask, config.blend), config.blend.constant);
-	OMSetRenderTargets(colclip_rt ? colclip_rt : config.rt, config.ds, &config.scissor);
 	DrawIndexedPrimitive();
 
 	if (config.blend_multi_pass.enable)
@@ -2697,8 +2794,8 @@ void GSDevice11::RenderHW(GSHWDrawConfig& config)
 	if (draw_ds_clone)
 		Recycle(draw_ds_clone);
 
-	if (primid_tex)
-		Recycle(primid_tex);
+	if (primid_texture)
+		Recycle(primid_texture);
 
 	if (colclip_rt)
 	{

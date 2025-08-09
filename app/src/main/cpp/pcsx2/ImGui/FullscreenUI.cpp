@@ -139,6 +139,7 @@ using ImGuiFullscreen::GetCachedTextureAsync;
 using ImGuiFullscreen::GetPlaceholderTexture;
 using ImGuiFullscreen::GetQueuedFocusResetType;
 using ImGuiFullscreen::HorizontalMenuItem;
+using ImGuiFullscreen::HorizontalMenuSvgItem;
 using ImGuiFullscreen::IsFocusResetQueued;
 using ImGuiFullscreen::IsGamepadInputSource;
 using ImGuiFullscreen::LayoutScale;
@@ -271,8 +272,6 @@ namespace FullscreenUI
 	static std::array<std::shared_ptr<GSTexture>, static_cast<u32>(GameDatabaseSchema::Compatibility::Perfect)>
 		s_game_compatibility_textures;
 	static std::shared_ptr<GSTexture> s_banner_texture;
-	static std::shared_ptr<GSTexture> s_fallback_disc_texture;
-	static std::shared_ptr<GSTexture> s_fallback_exe_texture;
 	static std::vector<std::unique_ptr<GSTexture>> s_cleanup_textures;
 
 	//////////////////////////////////////////////////////////////////////////
@@ -476,9 +475,13 @@ namespace FullscreenUI
 	static void DrawGameListSettingsWindow();
 	static void SwitchToGameList();
 	static void PopulateGameListEntryList();
-	static GSTexture* GetTextureForGameListEntryType(GameList::EntryType type);
+	static GSTexture* GetTextureForGameListEntryType(GameList::EntryType type, const ImVec2& size, SvgScaling mode = SvgScaling::Stretch);
 	static GSTexture* GetGameListCover(const GameList::Entry* entry);
-	static GSTexture* GetCoverForCurrentGame();
+	static void DrawGameCover(const GameList::Entry* entry, const ImVec2& size);
+	static void DrawGameCover(const GameList::Entry* entry, ImDrawList* draw_list, const ImVec2& min, const ImVec2& max);
+	// For when we have no GameList entry
+	static void DrawFallbackCover(const ImVec2& size);
+	static void DrawFallbackCover(ImDrawList* draw_list, const ImVec2& min, const ImVec2& max);
 
 	// Lazily populated cover images.
 	static std::unordered_map<std::string, std::string> s_cover_image_map;
@@ -1112,9 +1115,6 @@ void FullscreenUI::ReturnToMainWindow()
 
 bool FullscreenUI::LoadResources()
 {
-	s_fallback_disc_texture = LoadTexture("fullscreenui/media-cdrom.png");
-	s_fallback_exe_texture = LoadTexture("fullscreenui/applications-system.png");
-
 	return LoadSvgResources();
 }
 
@@ -1462,27 +1462,26 @@ void FullscreenUI::DrawLandingWindow()
 	{
 		ResetFocusHere();
 
-		if (HorizontalMenuItem(GetCachedTexture("fullscreenui/game-list.png"), FSUI_CSTR("Game List"),
+		if (HorizontalMenuSvgItem("fullscreenui/game-list.svg", FSUI_CSTR("Game List"),
 				FSUI_CSTR("Launch a game from images scanned from your game directories.")))
 		{
 			SwitchToGameList();
 		}
 
-		if (HorizontalMenuItem(
-				GetCachedTexture("fullscreenui/media-cdrom.png"), FSUI_CSTR("Start Game"),
+		if (HorizontalMenuSvgItem("fullscreenui/media-cdrom.svg", FSUI_CSTR("Start Game"),
 				FSUI_CSTR("Launch a game from a file, disc, or starts the console without any disc inserted.")))
 		{
 			s_current_main_window = MainWindowType::StartGame;
 			QueueResetFocus(FocusResetType::WindowChanged);
 		}
 
-		if (HorizontalMenuItem(GetCachedTexture("fullscreenui/applications-system.png"), FSUI_CSTR("Settings"),
+		if (HorizontalMenuSvgItem("fullscreenui/applications-system.svg", FSUI_CSTR("Settings"),
 				FSUI_CSTR("Changes settings for the application.")))
 		{
 			SwitchToSettings();
 		}
 
-		if (HorizontalMenuItem(GetCachedTexture("fullscreenui/exit.png"), FSUI_CSTR("Exit"),
+		if (HorizontalMenuSvgItem("fullscreenui/exit.svg", FSUI_CSTR("Exit"),
 				FSUI_CSTR("Return to desktop mode, or exit the application.")) ||
 			(!AreAnyDialogsOpen() && WantsToCloseMenu()))
 		{
@@ -1541,26 +1540,25 @@ void FullscreenUI::DrawStartGameWindow()
 	{
 		ResetFocusHere();
 
-		if (HorizontalMenuItem(GetCachedTexture("fullscreenui/start-file.png"), FSUI_CSTR("Start File"),
+		if (HorizontalMenuSvgItem("fullscreenui/start-file.svg", FSUI_CSTR("Start File"),
 				FSUI_CSTR("Launch a game by selecting a file/disc image.")))
 		{
 			DoStartFile();
 		}
 
-		if (HorizontalMenuItem(GetCachedTexture("fullscreenui/drive-cdrom.png"), FSUI_CSTR("Start Disc"),
+		if (HorizontalMenuSvgItem("fullscreenui/drive-cdrom.svg", FSUI_CSTR("Start Disc"),
 				FSUI_CSTR("Start a game from a disc in your PC's DVD drive.")))
 		{
 			DoStartDisc();
 		}
 
-		if (HorizontalMenuItem(GetCachedTexture("fullscreenui/start-bios.png"), FSUI_CSTR("Start BIOS"),
+		if (HorizontalMenuSvgItem("fullscreenui/start-bios.svg", FSUI_CSTR("Start BIOS"),
 				FSUI_CSTR("Start the console without any disc inserted.")))
 		{
 			DoStartBIOS();
 		}
 
-		// https://www.iconpacks.net/free-icon/arrow-back-3783.html
-		if (HorizontalMenuItem(GetCachedTexture("fullscreenui/back-icon.png"), FSUI_CSTR("Back"),
+		if (HorizontalMenuSvgItem("fullscreenui/back-icon.svg", FSUI_CSTR("Back"),
 				FSUI_CSTR("Return to the previous menu.")) ||
 			(!AreAnyDialogsOpen() && WantsToCloseMenu()))
 		{
@@ -1611,8 +1609,7 @@ void FullscreenUI::DrawExitWindow()
 	{
 		ResetFocusHere();
 
-		// https://www.iconpacks.net/free-icon/arrow-back-3783.html
-		if (HorizontalMenuItem(GetCachedTexture("fullscreenui/back-icon.png"), FSUI_CSTR("Back"),
+		if (HorizontalMenuSvgItem("fullscreenui/back-icon.svg", FSUI_CSTR("Back"),
 				FSUI_CSTR("Return to the previous menu.")) ||
 			WantsToCloseMenu())
 		{
@@ -1620,7 +1617,7 @@ void FullscreenUI::DrawExitWindow()
 			QueueResetFocus(FocusResetType::WindowChanged);
 		}
 
-		if (HorizontalMenuItem(GetCachedTexture("fullscreenui/exit.png"), FSUI_CSTR("Exit PCSX2"),
+		if (HorizontalMenuSvgItem("fullscreenui/exit.svg", FSUI_CSTR("Exit PCSX2"),
 				FSUI_CSTR("Completely exits the application, returning you to your desktop.")))
 		{
 			DoRequestExit();
@@ -1628,8 +1625,8 @@ void FullscreenUI::DrawExitWindow()
 
 		if (!Host::InNoGUIMode())
 		{
-			if (HorizontalMenuItem(GetCachedTexture("fullscreenui/desktop-mode.png"), FSUI_CSTR("Desktop Mode"),
-				FSUI_CSTR("Exits Big Picture mode, returning to the desktop interface.")))
+			if (HorizontalMenuSvgItem("fullscreenui/desktop-mode.svg", FSUI_CSTR("Desktop Mode"),
+					FSUI_CSTR("Exits Big Picture mode, returning to the desktop interface.")))
 			{
 				DoDesktopMode();
 			}
@@ -3389,7 +3386,7 @@ void FullscreenUI::DrawSummarySettingsPage()
 
 			for (const std::string& name : Pad::GetInputProfileNames())
 			{
-				options.emplace_back(fmt::format(FSUI_FSTR(name)), (value.has_value() && !value->empty() && value == name) ? true : false);
+				options.emplace_back(name, (value.has_value() && !value->empty() && value == name) ? true : false);
 				names.push_back(std::move(name));
 			}
 
@@ -5468,14 +5465,18 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 		}
 		DrawShadowedText(dl, g_medium_font, subtitle_pos, text_color, s_current_game_subtitle.c_str());
 
-
-		GSTexture* const cover = GetCoverForCurrentGame();
 		const ImVec2 image_min(display_size.x - LayoutScale(10.0f + image_width),
 			display_size.y - LayoutScale(LAYOUT_FOOTER_HEIGHT) - LayoutScale(10.0f + image_height) - rp_height);
 		const ImVec2 image_max(image_min.x + LayoutScale(image_width), image_min.y + LayoutScale(image_height) + rp_height);
-		const ImRect image_rect(CenterImage(
-			ImRect(image_min, image_max), ImVec2(static_cast<float>(cover->GetWidth()), static_cast<float>(cover->GetHeight()))));
-		dl->AddImage(reinterpret_cast<ImTextureID>(cover->GetNativeHandle()), image_rect.Min, image_rect.Max);
+		{
+			auto lock = GameList::GetLock();
+
+			const GameList::Entry* entry = GameList::GetEntryForPath(s_current_disc_path.c_str());
+			if (entry)
+				DrawGameCover(entry, dl, image_min, image_max);
+			else
+				DrawFallbackCover(dl, image_min, image_max);
+		}
 	}
 
 	// current time / play time
@@ -6463,8 +6464,6 @@ void FullscreenUI::DrawGameList(const ImVec2& heading_size)
 			if (!visible)
 				continue;
 
-			GSTexture* cover_texture = GetGameListCover(entry);
-
 			summary.clear();
 			if (entry->serial.empty())
 				fmt::format_to(std::back_inserter(summary), "{} - ", GameList::RegionToString(entry->region, true));
@@ -6474,11 +6473,7 @@ void FullscreenUI::DrawGameList(const ImVec2& heading_size)
 			const std::string_view filename(Path::GetFileName(entry->path));
 			summary.append(filename);
 
-			const ImRect image_rect(CenterImage(ImRect(bb.Min, bb.Min + image_size),
-				ImVec2(static_cast<float>(cover_texture->GetWidth()), static_cast<float>(cover_texture->GetHeight()))));
-
-			ImGui::GetWindowDrawList()->AddImage(reinterpret_cast<ImTextureID>(cover_texture->GetNativeHandle()),
-				image_rect.Min, image_rect.Max, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), IM_COL32(255, 255, 255, 255));
+			DrawGameCover(entry, ImGui::GetWindowDrawList(), bb.Min, bb.Min + image_size);
 
 			const float midpoint = bb.Min.y + g_large_font->FontSize + LayoutScale(4.0f);
 			const float text_start_x = bb.Min.x + image_size.x + LayoutScale(15.0f);
@@ -6519,29 +6514,46 @@ void FullscreenUI::DrawGameList(const ImVec2& heading_size)
 
 	if (BeginFullscreenColumnWindow(-530.0f, 0.0f, "game_list_info", UIPrimaryDarkColor))
 	{
-		const GSTexture* cover_texture =
-			selected_entry ? GetGameListCover(selected_entry) : GetTextureForGameListEntryType(GameList::EntryType::Count);
-		if (cover_texture)
-		{
-			const ImRect image_rect(CenterImage(LayoutScale(ImVec2(275.0f, 400.0f)),
-				ImVec2(static_cast<float>(cover_texture->GetWidth()), static_cast<float>(cover_texture->GetHeight()))));
+		const float img_padding_y = LayoutScale(20.0f);
+		// Spacing between each text item
+		const float text_spacing_y = LayoutScale(8.0f);
+		// Space between title/serial and details, is in addition to text_spacing_y
+		const float title_padding_below_y = LayoutScale(12.0f);
 
-			ImGui::SetCursorPos(LayoutScale(ImVec2(128.0f, 20.0f)) + image_rect.Min);
-			ImGui::Image(reinterpret_cast<ImTextureID>(selected_entry ? GetGameListCover(selected_entry)->GetNativeHandle() :
-																		GetTextureForGameListEntryType(GameList::EntryType::Count)->GetNativeHandle()),
-				image_rect.GetSize());
-		}
+		// Estimate how much space is needed for text
+		// Do this even when nothing is selected, to ensure cover/icon is in a consistant size/position
+		const float title_detail_height =
+			LayoutScale(LAYOUT_LARGE_FONT_SIZE) + text_spacing_y + // Title
+			LayoutScale(LAYOUT_MEDIUM_FONT_SIZE) + text_spacing_y + // Serial
+			title_padding_below_y +
+			7.0f * (LayoutScale(LAYOUT_MEDIUM_FONT_SIZE) + text_spacing_y) + // File, CRC, Region, Compat, Time/Last Played, Size
+			LayoutScale(12.0f); // Extra padding
 
-		const float work_width = ImGui::GetCurrentWindow()->WorkRect.GetWidth();
-		constexpr float field_margin_y = 10.0f;
-		constexpr float start_x = 50.0f;
-		float text_y = 440.0f;
+		// Limit cover height to avoid pushing text off the screen
+		const ImGuiWindow* window = ImGui::GetCurrentWindow();
+		// Based on ImGui code for WorkRect, with scrolling logic removed
+		const float window_height = std::trunc(window->InnerRect.GetHeight() - 2.0f * std::max(window->WindowPadding.y, window->WindowBorderSize));
+
+		const float free_height = window_height - title_detail_height;
+		const float img_height = std::min(free_height - 2.0f * img_padding_y, LayoutScale(400.0f));
+
+		const ImVec2 image_size = ImVec2(LayoutScale(275.0f), img_height);
+		ImGui::SetCursorPos(ImVec2(LayoutScale(128.0f), img_padding_y));
+
+		if (selected_entry)
+			DrawGameCover(selected_entry, image_size);
+		else
+			DrawFallbackCover(image_size);
+
+		const float work_width = window->WorkRect.GetWidth();
+		const float start_x = LayoutScale(50.0f);
+		const float text_y = img_height + 2.0f * img_padding_y;
 		float text_width;
 
 		PushPrimaryColor();
-		ImGui::SetCursorPos(LayoutScale(start_x, text_y));
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, field_margin_y));
-		ImGui::PushTextWrapPos(LayoutScale(480.0f));
+		ImGui::SetCursorPos(ImVec2(start_x, text_y));
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, text_spacing_y));
+		ImGui::PushTextWrapPos(LayoutScale(490.0f));
 		ImGui::BeginGroup();
 
 		if (selected_entry)
@@ -6550,6 +6562,8 @@ void FullscreenUI::DrawGameList(const ImVec2& heading_size)
 			ImGui::PushFont(g_large_font);
 			const std::string_view title(std::string_view(selected_entry->GetTitle(true)).substr(0, 37));
 			text_width = ImGui::CalcTextSize(title.data(), title.data() + title.length(), false, work_width).x;
+			if (title.length() != selected_entry->GetTitle(true).length())
+				text_width += ImGui::CalcTextSize("...", nullptr, false, -1.0f).x;
 			ImGui::SetCursorPosX((work_width - text_width) / 2.0f);
 			ImGui::TextWrapped(
 				"%.*s%s", static_cast<int>(title.size()), title.data(), (title.length() == selected_entry->GetTitle(true).length()) ? "" : "...");
@@ -6561,7 +6575,7 @@ void FullscreenUI::DrawGameList(const ImVec2& heading_size)
 			text_width = ImGui::CalcTextSize(selected_entry->serial.c_str(), nullptr, false, work_width).x;
 			ImGui::SetCursorPosX((work_width - text_width) / 2.0f);
 			ImGui::TextWrapped("%s", selected_entry->serial.c_str());
-			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 15.0f);
+			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + title_padding_below_y);
 
 			// file tile
 			ImGui::TextWrapped("%s", SmallString::from_format(FSUI_FSTR("File: {}"), Path::GetFileName(selected_entry->path)).c_str());
@@ -6698,12 +6712,7 @@ void FullscreenUI::DrawGameGrid(const ImVec2& heading_size)
 			bb.Min += style.FramePadding;
 			bb.Max -= style.FramePadding;
 
-			const GSTexture* const cover_texture = GetGameListCover(entry);
-			const ImRect image_rect(CenterImage(ImRect(bb.Min, bb.Min + image_size),
-				ImVec2(static_cast<float>(cover_texture->GetWidth()), static_cast<float>(cover_texture->GetHeight()))));
-
-			ImGui::GetWindowDrawList()->AddImage(reinterpret_cast<ImTextureID>(cover_texture->GetNativeHandle()),
-				image_rect.Min, image_rect.Max, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), IM_COL32(255, 255, 255, 255));
+			DrawGameCover(entry, ImGui::GetWindowDrawList(), bb.Min, bb.Min + image_size);
 
 			const ImRect title_bb(ImVec2(bb.Min.x, bb.Min.y + image_height + title_spacing), bb.Max);
 			const std::string_view title(std::string_view(entry->GetTitle(true)).substr(0, 31));
@@ -6992,33 +7001,108 @@ GSTexture* FullscreenUI::GetGameListCover(const GameList::Entry* entry)
 		cover_it = s_cover_image_map.emplace(entry->path, std::move(cover_path)).first;
 	}
 
-	GSTexture* tex = (!cover_it->second.empty()) ? GetCachedTextureAsync(cover_it->second.c_str()) : nullptr;
-	return tex ? tex : GetTextureForGameListEntryType(entry->type);
+	return (!cover_it->second.empty()) ? GetCachedTextureAsync(cover_it->second.c_str()) : nullptr;
 }
 
-GSTexture* FullscreenUI::GetTextureForGameListEntryType(GameList::EntryType type)
+GSTexture* FullscreenUI::GetTextureForGameListEntryType(GameList::EntryType type, const ImVec2& size, SvgScaling mode)
 {
 	switch (type)
 	{
 		case GameList::EntryType::ELF:
-			return s_fallback_exe_texture.get();
+			return GetCachedSvgTexture("fullscreenui/applications-system.svg", size, mode);
 
 		case GameList::EntryType::PS1Disc:
 		case GameList::EntryType::PS2Disc:
 		default:
-			return s_fallback_disc_texture.get();
+			return GetCachedSvgTexture("fullscreenui/media-cdrom.svg", size, mode);
 	}
 }
 
-GSTexture* FullscreenUI::GetCoverForCurrentGame()
+void FullscreenUI::DrawGameCover(const GameList::Entry* entry, const ImVec2& size)
 {
-	auto lock = GameList::GetLock();
+	// Used in DrawGameList (selected preview)
+	const GSTexture* cover_texture = GetGameListCover(entry);
 
-	const GameList::Entry* entry = GameList::GetEntryForPath(s_current_disc_path.c_str());
-	if (!entry)
-		return s_fallback_disc_texture.get();
+	pxAssert(ImGui::GetCurrentContext()->Style.ImageBorderSize == 0);
+	const ImVec2 origin = ImGui::GetCursorPos();
 
-	return GetGameListCover(entry);
+	if (cover_texture)
+	{
+		const ImRect image_rect(CenterImage(size,
+			ImVec2(static_cast<float>(cover_texture->GetWidth()), static_cast<float>(cover_texture->GetHeight()))));
+
+		ImGui::SetCursorPos(origin + image_rect.Min);
+		ImGui::Image(reinterpret_cast<ImTextureID>(cover_texture->GetNativeHandle()), image_rect.GetSize());
+	}
+	else
+	{
+		const float min_size = std::min(size.x, size.y);
+		const ImVec2 image_square(min_size, min_size);
+		GSTexture* const icon_texture = GetTextureForGameListEntryType(entry->type, image_square);
+
+		const ImRect image_rect(CenterImage(size, image_square));
+
+		ImGui::SetCursorPos(origin + image_rect.Min);
+		DrawSvgTexture(icon_texture, image_square);
+	}
+	// Pretend the image we drew was the the size passed to us
+	ImGui::SetCursorPos(origin);
+	ImGui::Dummy(size);
+}
+
+void FullscreenUI::DrawGameCover(const GameList::Entry* entry, ImDrawList* draw_list, const ImVec2& min, const ImVec2& max)
+{
+	// Used in DrawPauseMenu, DrawGameList (list item), DrawGameGrid
+	const GSTexture* cover_texture = GetGameListCover(entry);
+
+	if (cover_texture)
+	{
+		const ImRect image_rect(CenterImage(ImRect(min, max),
+			ImVec2(static_cast<float>(cover_texture->GetWidth()), static_cast<float>(cover_texture->GetHeight()))));
+
+		draw_list->AddImage(reinterpret_cast<ImTextureID>(cover_texture->GetNativeHandle()),
+			image_rect.Min, image_rect.Max);
+	}
+	else
+	{
+		const float min_size = std::min(max.x - min.x, max.y - min.y);
+		const ImVec2 image_square(min_size, min_size);
+
+		const ImRect image_rect(CenterImage(ImRect(min, max), image_square));
+
+		DrawListSvgTexture(draw_list, GetTextureForGameListEntryType(entry->type, image_square, SvgScaling::Fit),
+			image_rect.Min, image_rect.Max);
+	}
+}
+
+void FullscreenUI::DrawFallbackCover(const ImVec2& size)
+{
+	pxAssert(ImGui::GetCurrentContext()->Style.ImageBorderSize == 0);
+	const ImVec2 origin = ImGui::GetCursorPos();
+
+	const float min_size = std::min(size.x, size.y);
+	const ImVec2 image_square(min_size, min_size);
+	GSTexture* const icon_texture = GetTextureForGameListEntryType(GameList::EntryType::PS2Disc, image_square);
+
+	const ImRect image_rect(CenterImage(size, image_square));
+
+	ImGui::SetCursorPos(origin + image_rect.Min);
+	DrawSvgTexture(icon_texture, image_square);
+
+	// Pretend the image we drew was the the size passed to us
+	ImGui::SetCursorPos(origin);
+	ImGui::Dummy(size);
+}
+
+void FullscreenUI::DrawFallbackCover(ImDrawList* draw_list, const ImVec2& min, const ImVec2& max)
+{
+	const float min_size = std::min(max.x - min.x, max.y - min.y);
+	const ImVec2 image_square(min_size, min_size);
+
+	const ImRect image_rect(CenterImage(ImRect(min, max), image_square)); 
+
+	DrawListSvgTexture(draw_list, GetTextureForGameListEntryType(GameList::EntryType::PS2Disc, image_square, SvgScaling::Fit),
+		image_rect.Min, image_rect.Max);
 }
 
 //////////////////////////////////////////////////////////////////////////
